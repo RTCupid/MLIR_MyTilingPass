@@ -1,0 +1,2 @@
+/usr/bin/ar Dqc ../libMLIRMyTilingPass.a CMakeFiles/obj.MLIRMyTilingPass.dir/MyTilingPass.cpp.o
+/usr/bin/ranlib -D ../libMLIRMyTilingPass.a
