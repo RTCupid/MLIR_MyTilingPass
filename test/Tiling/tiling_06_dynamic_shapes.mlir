@@ -1,5 +1,5 @@
 // ============================================================================
-// Test 6: Matrices with dynamic dimensions (?)
+// Test 6: Matrices with dynamic dimensions 
 // Expectation: affine.min for dynamic boundary handling
 // ============================================================================
 
