@@ -15,37 +15,6 @@
 
 using namespace mlir;
 
-struct TilingPattern : public RewritePattern {
-
-  scf::SCFTilingOptions options;
-
-  TilingPattern(MLIRContext *ctx, const scf::SCFTilingOptions &opts)
-      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx), options(opts) {}
-
-  LogicalResult matchAndRewrite(Operation *op,
-                                PatternRewriter &rewriter) const override {
-    Operation *parent = op->getParentOp();
-    while (parent) {
-      if (isa<scf::ForOp, scf::ParallelOp>(parent)) {
-        return failure();
-      }
-      parent = parent->getParentOp();
-    }
-
-    TilingInterface tilingOp = dyn_cast<TilingInterface>(op);
-    if (!tilingOp) return failure();
-
-    FailureOr<scf::SCFTilingResult> result =
-      scf::tileUsingSCFForOp(rewriter, tilingOp, options);
-
-    if (failed(result)) return failure();
-
-    rewriter.replaceOp(op, result->replacements);
-
-    return success();
-  }
-};
-
 struct MyTilingPass
     : public PassWrapper<MyTilingPass, OperationPass<func::FuncOp>> {
 
@@ -93,17 +62,20 @@ void MyTilingPass::runOnOperation() {
   scf::SCFTilingOptions tilingOptions;
   tilingOptions.setTileSizes(tileSizesOFR);
 
-  RewritePatternSet patterns(ctx);
-  patterns.add<TilingPattern>(ctx, tilingOptions);
+  SmallVector<TilingInterface> worklist;
+  func.walk([&](TilingInterface op) {
+    worklist.push_back(op);
+  });
 
-  GreedyRewriteConfig config;
-  config.maxIterations = 10;
-  config.useTopDownTraversal = true;
-  config.enableRegionSimplification = true;
+  IRRewriter rewriter(ctx);
+  for (TilingInterface op : worklist) {
+    if (op->getBlock() == nullptr) continue;
 
-  if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns), config))) {
-    signalPassFailure();
-    return;
+    FailureOr<scf::SCFTilingResult> result =
+      scf::tileUsingSCFForOp(rewriter, op, tilingOptions);
+    if (succeeded(result)) {
+      rewriter.replaceOp(op, result->replacements);
+    }
   }
 }
 
