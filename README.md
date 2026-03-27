@@ -1,7 +1,7 @@
 <div align="center">
 
 # My Tiling Pass for matrix multiplication operations in Linalg dialect
-  ![C++](https://img.shields.io/badge/C++-23-blue?style=for-the-badge&logo=cplusplus)
+  ![C++](https://img.shields.io/badge/C++-20-blue?style=for-the-badge&logo=cplusplus)
   ![CMake](https://img.shields.io/badge/CMake-3.20+-green?style=for-the-badge&logo=cmake)
   ![MLIR](https://img.shields.io/badge/MLIR-18.1+-yellow?style=for-the-badge&logo=llvm&logoColor=white)
   ![LLVM](https://img.shields.io/badge/LLVM-18.1+-blue?style=for-the-badge&logo=llvm)
