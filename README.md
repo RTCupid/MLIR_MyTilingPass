@@ -10,6 +10,11 @@
 
 My standalone MLIR project.
 
+## README in other languages 
+
+1. [Russian](/README-R.md)
+2. [English](/README.md)
+
 ## Table of Contents
 - [0. Running the program](#running-the-program)
 - [1. Annotation](#annotation)
