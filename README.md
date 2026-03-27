@@ -8,7 +8,7 @@
 
 </div>
 
-My standalone MLIR project.
+My standalone `MLIR` project.
 
 ## README in other languages 
 
@@ -29,7 +29,7 @@ My standalone MLIR project.
 
 ## Running the program
 
-This project expects a working MLIR/LLVM build with `MLIRConfig.cmake` available. Repository cloning, build and compilation is performed using the following commands:
+This project expects a working `MLIR/LLVM` build with `MLIRConfig.cmake` available. Repository cloning, build and compilation is performed using the following commands:
 
 ```bash
 git clone git@github.com:RTCupid/MLIR_MyTilingPass.git
