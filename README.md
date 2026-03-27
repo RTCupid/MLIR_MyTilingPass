@@ -49,6 +49,11 @@ The tool has been successfully tested on a wide range of configurations, includi
 
 
 ## Introduction
+In modern tensor compilers for deep learning, matrix multiplication (`matmul`) is the dominant operation in terms of computational cost. It accounts for the majority of execution time in both training and inference. The efficiency of matmul implementation heavily depends on how memory accesses are organized: without considering the memory hierarchy and target architecture, code generation results in excessive `DRAM` traffic, poor `cache` utilization, and underutilization of computational units.
+
+A naive implementation using nested loops does not reorder data accesses. Each access loads an entire `cache line`, and repeated traversals over the same data cause massive unnecessary transfers between memory levels. Data reuse is minimal, performance becomes bounded by memory bandwidth, and `vector` instructions along with `core‑level` parallelism remain unused.
+
+The proposed `tiling` pass addresses these issues by partitioning the operation into blocks. Tile sizes are selected to match `cache capacity`, maximizing data reuse and reducing `cache misses`. Additionally, the pass automates the transformation, eliminating the need to manually write complex loop nests. Its general design correctly handles dynamic shapes, rectangular matrices, and scenarios where the matmul operation is already nested inside loops.
 
 ## Methodology
 
