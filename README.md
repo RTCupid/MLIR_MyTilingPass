@@ -45,7 +45,7 @@ cd build/bin
 ./my-tiling-opt <mlir_program>
 ```
 
-Also this tool contain options for M, N, K dimensions of tiling. Entry `-my-tiling="tile-sizes=%s,%s,%s`.
+Also this tool contain options for M, N, K dimensions of tiling. Entry `-my-tiling="tile-sizes=%s,%s,%s`".
 
 ## Annotation
 A tool based on `mlir-opt` implements `tiling` (block partitioning) for `matrix multiplication operations` within the `Linalg` dialect. It utilizes a `TableGen` specification alongside a `C++` class that derives from `PassWrapper`. The implementation employs the `TilingInterface` to identify applicable patterns and leverages `scf::tileUsingSCFForOp` to perform the tiling transformation.
