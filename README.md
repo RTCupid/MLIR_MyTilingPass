@@ -43,6 +43,7 @@ cd build/bin
 Also this tool contain options for M, N, K dimensions of tiling. Entry `-my-tiling="tile-sizes=%s,%s,%s`.
 
 ## Annotation
+A mlir-opt-based tool has been developed that performs `tiling` (block partitioning) for matrix multiplication operations in the Linalg dialect. A table-gen description was used, along with a C++ implementation of a class that inherits from PassWrapper. TilingInterface was used to find patterns, and the scf::tileUsingSCFForOp function was used to perform tiling.
 
 ## Introduction
 
