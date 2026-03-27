@@ -56,6 +56,17 @@ A naive implementation using nested loops does not reorder data accesses. Each a
 The proposed `tiling` pass addresses these issues by partitioning the operation into blocks. Tile sizes are selected to match `cache capacity`, maximizing data reuse and reducing `cache misses`. Additionally, the pass automates the transformation, eliminating the need to manually write complex loop nests. Its general design correctly handles dynamic shapes, rectangular matrices, and scenarios where the matmul operation is already nested inside loops.
 
 ## Methodology
+The tiling pass is implemented using the `MLIR` framework, which provides a flexible intermediate representation (`IR`) and a comprehensive set of transformation utilities. Since matrix multiplication operations are part of the `Linalg` dialect, the optimization pass is specifically designed for this dialect.
+
+Two main approaches can be used to implement such a pass in `MLIR`:
+
+- Pattern‑based approach – defining a set of classes derived from `OpRewritePattern` and applying them using rewrite drivers such as `applyPatternsAndFoldGreedily`. This method is suitable when multiple related transformations need to be combined, but it requires explicit control over pattern application order.
+
+- Manual operation traversal – iterating over all operations in the module and checking whether they implement the `TilingInterface`. This approach provides full control over the transformation process and simplifies debugging, as it does not rely on a `non‑deterministic` pattern walk.
+
+In this work, the second approach is adopted, allowing precise tracking of tiling applied to each `linalg.matmul` and `linalg.generic` operation that performs matrix multiplication. The actual tiling is performed using the existing function `scf::tileUsingSCFForOp`, which takes an operation that implements `TilingInterface` and returns new `scf.for` loops containing the tiled operations.
+
+The project is built in a `standalone` configuration, which isolates the development of the test pass from the main `MLIR` source tree and simplifies its integration into external tools.
 
 ## Implementation of the tiling pass
 
