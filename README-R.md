@@ -39,7 +39,7 @@ cmake --build build
 
 ```bash
 cd build/bin
-./my-tiling-opt <mlir_program>
+./my-tiling-opt <mlir_program> -my-tiling
 ```
 
 Разработанный инструмент включает возможность задавать размерности тайлинга `M`, `N`, `K` при помощи следующей опции `-my-tiling="tile-sizes=%s,%s,%s`".
@@ -150,7 +150,7 @@ void MyTilingPass::runOnOperation() {
 
 </details>
 
-Для создания инструмента тайлинга разработана функция `main` с регистрацией диалектов и прохода тайлинга (см. [my-tiling-opt.cpp](/tools/my-tiling-opt/my-tiling-opt.cpp)).
+Для создания инструмента тайлинга разработана функция `main` с регистрацией всех диалектов и прохода тайлинга (см. [my-tiling-opt.cpp](/tools/my-tiling-opt/my-tiling-opt.cpp)).
 
 <details>
 <summary>Функция main:</summary>
@@ -172,6 +172,7 @@ int main(int argc, char **argv) {
 
 </details>
 
+Таким образом, получили 
 
 ## Результаты
 
