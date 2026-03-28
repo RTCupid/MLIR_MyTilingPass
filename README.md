@@ -42,7 +42,7 @@ Program execution is performed in the following format:
 
 ```bash
 cd build/bin
-./my-tiling-opt <mlir_program>
+./my-tiling-opt <mlir_program> -my-tiling
 ```
 
 Also this tool contain options for M, N, K dimensions of tiling. Entry `-my-tiling="tile-sizes=%s,%s,%s`".
