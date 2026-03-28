@@ -249,6 +249,43 @@ module {
 
 ## Структура проекта
 
+<details>
+<summary>Структура проекта:</summary>
+
+```
+.
+├── CMakeLists.txt
+├── include
+│   ├── CMakeLists.txt
+│   └── MyTiling
+│       ├── CMakeLists.txt
+│       ├── Passes.h
+│       └── Passes.td
+├── lib
+│   ├── CMakeLists.txt
+│   └── Transforms
+│       ├── CMakeLists.txt
+│       └── MyTilingPass.cpp
+├── test
+│   └── Tiling
+│       ├── boundary_conditions.mlir
+│       ├── chain_of_two_matmuls.mlir
+│       ├── different_tile_sizes.mlir
+│       ├── divisible_sizes.mlir
+│       ├── dynamic_shapes.mlir
+│       ├── generic_with_divisible_tile_sizes.mlir
+│       ├── matmul_inside_scf_for.mlir
+│       ├── rectangular_matrices.mlir
+│       └── tensor_semantics.mlir
+└── tools
+    ├── CMakeLists.txt
+    └── my-tiling-opt
+        ├── CMakeLists.txt
+        └── my-tiling-opt.cpp
+```
+
+</details>
+
 ## Автор проекта
 
 <div align="center">
