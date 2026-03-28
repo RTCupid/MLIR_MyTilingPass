@@ -45,7 +45,7 @@ cd build/bin
 Разработанный инструмент включает возможность задавать размерности тайлинга `M`, `N`, `K` при помощи следующей опции `-my-tiling="tile-sizes=%s,%s,%s`".
 
 ## Аннотация
-Разработан инструмент на основе `mlir-opt`, который выполняет разбиение на блоки (`tiling`) для операций умножения матриц в диалекте `Linalg`. В реализации использована спецификация `TableGen` и класс на `C++`, производный от `PassWrapper`. Для определения подходящих шаблонов использован `TilingInterface`, а для выполнения преобразования с разбиением на блоки - `scf::tileUsingSCFForOp`.
+Разработан инструмент на основе `mlir-opt`, который выполняет разбиение на блоки (`tiling`) для операций умножения матриц в диалекте `Linalg`. В реализации использована спецификация `TableGen` и класс на `C++`, производный от `MyTilingPassBase`, сгенерированного TableGen. Для определения подходящих шаблонов использован `TilingInterface`, а для выполнения преобразования с разбиением на блоки - `scf::tileUsingSCFForOp`.
 
 Инструмент успешно протестирован на широком спектре конфигураций: матрицах с размерностями, кратными и не кратными размерам тайлов; динамических формах; двух последовательных операциях умножения матриц; прямоугольных матрицах с различными значениями `M`, `N`, `K`; `тензорах` и `memref`; а также для операций `linalg.matmul` и `linalg.generic`. Дополнительно проверена корректность работы в случае, когда операция умножения матриц изначально находится внутри цикла, — этот сценарий не поддерживался в первой версии.
 
@@ -66,15 +66,111 @@ cd build/bin
 
 Вторым подходом к задаче является итеративный обход операций, а именно ручная итерация по всем операциям модуля с проверкой реализации интерфейса `TilingInterface`. Данный подход обеспечивает полный контроль над процессом преобразования и упрощает отладку, так как не полагается на недетерминированный обход паттернов.
 
-В рамках данной работы выбран второй подход, позволяющий точно отслеживать применение тайлинга к каждой операции `linalg.matmul` и `linalg.generic`, реализующей умножение матриц. Для выполнения самого тайлинга используется доступная в `MLIR` функция `scf::tileUsingSCFForOp`, которая принимает операцию, поддерживающую `TilingInterface`, и возвращает новые циклы `scf.for` с вложенными операциями над блоками.
+В рамках данной работы выбран второй подход, позволяющий точно отслеживать применение тайлинга к каждой операции `linalg.matmul` и `linalg.generic`, реализующей умножение матриц. Для выполнения тайлинга используется доступная в `MLIR` функция `scf::tileUsingSCFForOp`, которая принимает операцию, поддерживающую `TilingInterface`, и возвращает новые циклы `scf.for` с вложенными операциями над блоками.
 
 Сборка проекта организована в `standalone` конфигурации, что позволяет изолировать разработку тестового пасса от основного дерева `MLIR` и упрощает его интеграцию в сторонние инструменты.
 
 ## Реализация прохода тайлинга
 Для написания первой итерации прохода изучена структура диалектов и проходов в `MLIR` (см. [Toy Tutorial](https://mlir.llvm.org/docs/Tutorials/Toy/)), и реализована минимальная версия своего диалекта и преобразования для его операции (см. [MLIR_MyDialect](https://github.com/RTCupid/MLIR_MyDialect)). Основные проблемы при этом вызвала установка зависимостей между файлами в `CMakeLists.txt` и определение доступного набора уже реализованных функций.
 
-В первой версии реализации прохода тайлинга выбран паттерн-ориентированный проход, потому что в этом случае некоторую часть действий можно вынести в уже существующие механизмы, такие как `applyPatternsAndFoldGreedily`. Полученный пасс успешно прошёл большую часть тестов, однако возникла проблема запуска прохода на уже обработанных операциях. Эту проблему решило установление максимального количества итераций и проверка, что операция не находится в цикле, потому что это с некоторой вероятностью указывало на применение тайлинга к этой операции ранее. Тогда трудности возникли с умножением матриц, которое изначально находилось внутри цикла. Принято решение перейти на второй подход реализации пасса, потому что он позволяет точнее контроллировать работу с операциями и проще реализовать одиночный проход по операциям, удовлетворяющим `TilingInterface`.
+Первая итерация прохода тайлинга реализована с использованием паттернов переписывания (`RewritePattern`). Такой подход позволил задействовать готовые механизмы, например, `applyPatternsAndFoldGreedily`, для многократного применения преобразований. 
 
+Полученный проход успешно проходил большую часть тестов. Однако возникла проблема запуска прохода на уже обработанных операциях. проблема была решена ограничением количества итераций в `GreedyRewriteConfig` и добавлением эвристической проверки, что операция не находится в цикле. На этом этапе возникли трудности с умножением матриц, которое изначально находилось внутри цикла. Принято решение использовать подход на основе обхода операций (`walk`) и прямого вызова `scf::tileUsingSCFForOp`. Это позволило точнее контролировать работу с операциями и проще реализовать одиночный проход по операциям, удовлетворяющим `TilingInterface`.
+
+Для генерации базового класса разработано его описание на языке `TableGen` (см. [Passes.td](/include/MyTiling/Passes.td)).
+
+<details>
+<summary>Описание для TableGen:</summary>
+
+```mlir
+def MyTilingPass : Pass<"my-tiling", "mlir::func::FuncOp"> {
+  let summary = "Tile linalg operations with user-specified tile sizes";
+  let description = [{
+    Applies tiling transformation to linalg operations using TilingInterface.
+    Takes tile sizes as pass option.
+  }];
+
+  let constructor = "mlir::createMyTilingPass()";
+  let dependentDialects = ["mlir::linalg::LinalgDialect", "mlir::scf::SCFDialect",
+                           "mlir::memref::MemRefDialect", "mlir::tensor::TensorDialect"];
+
+  let options = [
+    ListOption<"tileSizes", "tile-sizes", "int64_t",
+          "Tile sizes for each loop dimension">
+  ];
+}
+```
+
+</details>
+
+По этому описанию генерировался класс `MyTilingPassBase`, содержащий такие базовые методы, как `getArgument`, `getDescription`, `getDependentDialects` и другие, а также функция для регистрации прохода `registerMyTilingPass`.
+
+На `C++` реализован класс `MyTilingPass` (см. [MyTiling.cpp](/lib/Transforms/MyTilingPass.cpp)), наследующийся от базового, который реализует основную логику прохода - `runOnOperation`.
+
+<details>
+<summary>Определение runOnOperation:</summary>
+
+```c++
+void MyTilingPass::runOnOperation() {
+  func::FuncOp func = getOperation();
+  MLIRContext *ctx = &getContext();
+  Builder b(ctx);
+
+  SmallVector<OpFoldResult> tileSizesOFR =
+      llvm::to_vector(llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
+        return b.getIndexAttr(v);
+      }));
+  if (tileSizesOFR.empty()) {
+    tileSizesOFR = {b.getIndexAttr(32), b.getIndexAttr(32), b.getIndexAttr(32)};
+  }
+
+  scf::SCFTilingOptions tilingOptions;
+  tilingOptions.setTileSizes(tileSizesOFR);
+
+  SmallVector<TilingInterface> worklist;
+  func.walk([&](TilingInterface op) {
+    worklist.push_back(op);
+  });
+
+  IRRewriter rewriter(ctx);
+  for (TilingInterface op : worklist) {
+    if (op->getBlock() == nullptr) continue;
+
+    FailureOr<scf::SCFTilingResult> result =
+      scf::tileUsingSCFForOp(rewriter, op, tilingOptions);
+    if (succeeded(result)) {
+      rewriter.replaceOp(op, result->replacements);
+    }
+  }
+}
+
+```
+
+Функция получает все операции, реализующие TilingInterface, и для каждой применяет scf::tileUsingSCFForOp с заданными размерами тайлов
+
+</details>
+
+Для создания инструмента тайлинга разработана функция `main` с регистрацией диалектов и прохода тайлинга (см. [my-tiling-opt.cpp](/tools/my-tiling-opt/my-tiling-opt.cpp)).
+
+<details>
+<summary>Функция main:</summary>
+
+```c++
+int main(int argc, char **argv) {
+  mlir::DialectRegistry registry;
+  mlir::registerAllDialects(registry);
+
+  mlir::my_tiling::registerMyTilingPass();
+
+  return mlir::asMainReturnCode(
+      mlir::MlirOptMain(argc, argv,
+                        "My Tiling Optimization Tool",
+                        registry));
+}
+
+```
+
+</details>
 
 
 ## Результаты
