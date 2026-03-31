@@ -35,7 +35,8 @@ using namespace mlir;
 struct TileUsingSCFPattern : public OpInterfaceRewritePattern<TilingInterface> {
 public:
   TileUsingSCFPattern(MLIRContext *ctx, scf::SCFTilingOptions options)
-      : OpInterfaceRewritePattern<TilingInterface>(ctx), options(std::move(options)) {}
+      : OpInterfaceRewritePattern<TilingInterface>(ctx),
+        options(std::move(options)) {}
 
   LogicalResult matchAndRewrite(TilingInterface op,
                                 PatternRewriter &rewriter) const override {
