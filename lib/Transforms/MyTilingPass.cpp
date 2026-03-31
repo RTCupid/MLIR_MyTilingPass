@@ -32,17 +32,24 @@
 
 using namespace mlir;
 
-struct TileUsingSCFPattern : public OpRewritePattern<TilingInterface> {
+struct TileUsingSCFPattern : public OpInterfaceRewritePattern<TilingInterface> {
 public:
   TileUsingSCFPattern(MLIRContext *ctx, scf::SCFTilingOptions options)
-      : OpRewritePattern<TilingInterface>(ctx), options(std::move(options)) {}
+      : OpInterfaceRewritePattern<TilingInterface>(ctx), options(std::move(options)) {}
 
   LogicalResult matchAndRewrite(TilingInterface op,
                                 PatternRewriter &rewriter) const override {
+    if (op->hasAttr("tiled"))
+      return failure();
+
     FailureOr<scf::SCFTilingResult> result =
         scf::tileUsingSCFForOp(rewriter, op, options);
     if (failed(result))
       return failure();
+
+    for (Operation *newOp : result->tiledOps) {
+      newOp->setAttr("tiled", rewriter.getUnitAttr());
+    }
 
     rewriter.replaceOp(op, result->replacements);
     return success();
@@ -83,7 +90,7 @@ void MyTilingPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<TileUsingSCFPattern>(ctx, tilingOptions);
 
-  if (failed(applyPatternAndFoldGreedily(func, std::move(patterns))))
+  if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
     signalPassFailure();
 }
 
