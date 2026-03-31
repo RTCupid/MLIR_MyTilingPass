@@ -22,14 +22,6 @@
 #include "MyTiling/Passes.h.inc"
 #undef GEN_PASS_DEF_MYTILINGPASS
 
-#define GEN_PASS_DECL_MYTILINGPASS
-#include "MyTiling/Passes.h.inc"
-#undef GEN_PASS_DECL_MYTILINGPASS
-
-#define GEN_PASS_DEF_MYTILINGPASS
-#include "MyTiling/Passes.h.inc"
-#undef GEN_PASS_DEF_MYTILINGPASS
-
 using namespace mlir;
 
 struct TileUsingSCFPattern : public OpInterfaceRewritePattern<TilingInterface> {
@@ -48,9 +40,8 @@ public:
     if (failed(result))
       return failure();
 
-    for (Operation *newOp : result->tiledOps) {
+    for (Operation *newOp : result->tiledOps)
       newOp->setAttr("tiled", rewriter.getUnitAttr());
-    }
 
     rewriter.replaceOp(op, result->replacements);
     return success();
@@ -67,7 +58,6 @@ public:
   MyTilingPass() = default;
   MyTilingPass(const MyTilingPass &other)
       : MyTilingPassBase<MyTilingPass>(other) {}
-      : MyTilingPassBase<MyTilingPass>(other) {}
 
   void runOnOperation() override;
 };
@@ -81,9 +71,8 @@ void MyTilingPass::runOnOperation() {
       llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
         return b.getIndexAttr(v);
       }));
-  if (tileSizesOFR.empty()) {
+  if (tileSizesOFR.empty())
     tileSizesOFR = {b.getIndexAttr(32), b.getIndexAttr(32), b.getIndexAttr(32)};
-  }
 
   scf::SCFTilingOptions tilingOptions;
   tilingOptions.setTileSizes(tileSizesOFR);

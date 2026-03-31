@@ -10,7 +10,7 @@ jobs:
     - name: Check formatting
       run: |
         sudo apt-get install -y clang-format
-        find lib include -name '*.cpp' -o -name '*.h' -o -name '*.hpp' | xargs clang-format -i
+        find frontend/src frontend/include -name '*.cpp' -o -name '*.h' -o -name '*.hpp' | xargs clang-format -i
         git diff --exit-code
 
   format-fix:
@@ -25,7 +25,7 @@ jobs:
     - name: Auto-format code
       run: |
         sudo apt-get install -y clang-format
-        find lib include -name '*.cpp' -o -name '*.h' -o -name '*.hpp' | xargs clang-format -i
+        find frontend/src frontend/include -name '*.cpp' -o -name '*.h' -o -name '*.hpp' | xargs clang-format -i
     - name: Commit and push changes
       run: |
         git config --local user.email "action@github.com"
@@ -34,3 +34,70 @@ jobs:
         git commit -m "Auto-format code" || exit 0
         git push
 
+  build-and-test:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install LLVM 18 and MLIR from apt
+      run: |
+        wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main"
+        sudo apt-get update
+        sudo apt-get install -y llvm-18 clang-18 lld-18 libclang-18-dev libmlir-18-dev mlir-18-tools
+
+    - name: Install lit via pip (if needed)
+      run: |
+        if ! command -v lit &> /dev/null; then
+          pip3 install lit
+        fi
+
+    - name: Install other dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential libgtest-dev flex bison libfl-dev
+
+    - name: Configure CMake with MLIR and shared libs
+      run: |
+        # Find lit
+        if [ -f /usr/lib/llvm-18/bin/llvm-lit ]; then
+          LIT_PATH=/usr/lib/llvm-18/bin/llvm-lit
+          LLVM_TOOLS_DIR=/usr/lib/llvm-18/bin
+        elif [ -f /usr/bin/llvm-lit-18 ]; then
+          LIT_PATH=/usr/bin/llvm-lit-18
+          LLVM_TOOLS_DIR=/usr/bin
+        elif command -v lit &> /dev/null; then
+          LIT_PATH=$(which lit)
+          LLVM_TOOLS_DIR=/usr/lib/llvm-18/bin
+        else
+          echo "::error::llvm-lit not found, and lit not in PATH"
+          exit 1
+        fi
+        echo "Using LLVM tools dir: $LLVM_TOOLS_DIR"
+        echo "Using lit: $LIT_PATH"
+
+        # Optional: set paths to FileCheck, count, not (they are in LLVM tools dir)
+        FILE_CHECK_PATH=$LLVM_TOOLS_DIR/FileCheck
+        COUNT_PATH=$LLVM_TOOLS_DIR/count
+        NOT_PATH=$LLVM_TOOLS_DIR/not
+
+        cmake -S . -B build \
+          -DMLIR_DIR=/usr/lib/llvm-18/lib/cmake/mlir \
+          -DLLVM_DIR=/usr/lib/llvm-18/lib/cmake/llvm \
+          -DBUILD_SHARED_LIBS=ON \
+          -DLLVM_LINK_LLVM_DYLIB=ON \
+          -DLLVM_TOOLS_DIR="$LLVM_TOOLS_DIR" \
+          -DLLVM_LIT="$LIT_PATH" \
+          -DLLVM_EXTERNAL_LIT="$LIT_PATH" \
+          -DFILECHECK_EXECUTABLE="$FILE_CHECK_PATH" \
+          -DCOUNT_EXECUTABLE="$COUNT_PATH" \
+          -DNOT_EXECUTABLE="$NOT_PATH"
+
+    - name: Build and run tests
+      run: |
+        # Add LLVM tools and pip lit to PATH
+        echo "/usr/lib/llvm-18/bin" >> $GITHUB_PATH
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        # Add LLVM libs to LD_LIBRARY_PATH for dynamic linking
+        echo "LD_LIBRARY_PATH=/usr/lib/llvm-18/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        cmake --build build --target check-my-tiling -j2
