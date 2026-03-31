@@ -1,18 +1,17 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Dialect/SCF/Transforms/Transforms.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
-#include "mlir/Interfaces/TilingInterface.h"
+#include "mlir/Dialect/SCF/Transforms/Transforms.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/TilingInterface.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/ArrayRef.h"
 #include <memory>
 
 #define GEN_PASS_DECL_MYTILINGPASS
@@ -70,9 +69,8 @@ void MyTilingPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   Builder b(ctx);
 
-  SmallVector<OpFoldResult> tileSizesOFR =
-      llvm::to_vector(llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
-      llvm::to_vector(llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
+  SmallVector<OpFoldResult> tileSizesOFR = llvm::to_vector(
+      llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
         return b.getIndexAttr(v);
       }));
   if (tileSizesOFR.empty()) {
@@ -94,5 +92,3 @@ std::unique_ptr<Pass> createMyTilingPass() {
   return std::make_unique<MyTilingPass>();
 }
 } // namespace mlir
-
-
