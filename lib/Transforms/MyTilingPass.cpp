@@ -12,7 +12,9 @@
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ArrayRef.h"
+#include <algorithm>
 #include <memory>
+#include <numeric>
 
 #define GEN_PASS_DECL_MYTILINGPASS
 #include "MyTiling/Passes.h.inc"
@@ -44,9 +46,8 @@ void MyTilingPass::runOnOperation() {
       llvm::to_vector(llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
         return b.getIndexAttr(v);
       }));
-  if (tileSizesOFR.empty()) {
+  if (tileSizesOFR.empty())
     tileSizesOFR = {b.getIndexAttr(32), b.getIndexAttr(32), b.getIndexAttr(32)};
-  }
 
   scf::SCFTilingOptions tilingOptions;
   tilingOptions.setTileSizes(tileSizesOFR);
@@ -57,13 +58,19 @@ void MyTilingPass::runOnOperation() {
   });
 
   IRRewriter rewriter(ctx);
-  for (TilingInterface op : worklist) {
-    if (op->getBlock() == nullptr) continue;
+  SmallVector<std::pair<TilingInterface, FailureOr<scf::SCFTilingResult>>> results;
+  results.resize(worklist.size());
 
-    FailureOr<scf::SCFTilingResult> result =
-      scf::tileUsingSCFForOp(rewriter, op, tilingOptions);
-    if (succeeded(result)) {
-      rewriter.replaceOp(op, result->replacements);
+  std::transform(worklist.begin(), worklist.end(), results.begin(),
+      [&](TilingInterface &op) -> std::pair<TilingInterface, FailureOr<scf::SCFTilingResult>> {
+    if (op->getBlock() == nullptr) return std::make_pair(op, failure());
+
+    return std::make_pair(op, scf::tileUsingSCFForOp(rewriter, op, tilingOptions));
+  });
+
+  for (auto &result : results) {
+    if (succeeded(result.second)) {
+      rewriter.replaceOp(result.first, result.second->replacements);
     }
   }
 }
