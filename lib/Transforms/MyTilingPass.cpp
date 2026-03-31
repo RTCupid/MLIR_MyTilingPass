@@ -12,7 +12,16 @@
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/ArrayRef.h"
 #include <memory>
+
+#define GEN_PASS_DECL_MYTILINGPASS
+#include "MyTiling/Passes.h.inc"
+#undef GEN_PASS_DECL_MYTILINGPASS
+
+#define GEN_PASS_DEF_MYTILINGPASS
+#include "MyTiling/Passes.h.inc"
+#undef GEN_PASS_DEF_MYTILINGPASS
 
 #define GEN_PASS_DECL_MYTILINGPASS
 #include "MyTiling/Passes.h.inc"
@@ -24,12 +33,33 @@
 
 using namespace mlir;
 
-struct MyTilingPass : public ::impl::MyTilingPassBase<MyTilingPass> {
+struct TileUsingSCFPattern : public OpRewritePattern<TilingInterface> {
+public:
+  TileUsingSCFPattern(MLIRContext *ctx, scf::SCFTilingOptions options)
+      : OpRewritePattern<TilingInterface>(ctx), options(std::move(options)) {}
 
+  LogicalResult matchAndRewrite(TilingInterface op,
+                                PatternRewriter &rewriter) const override {
+    FailureOr<scf::SCFTilingResult> result =
+        scf::tileUsingSCFForOp(rewriter, op, options);
+    if (failed(result))
+      return failure();
+
+    rewriter.replaceOp(op, result->replacements);
+    return success();
+  }
+
+private:
+  scf::SCFTilingOptions options;
+};
+
+struct MyTilingPass : public ::impl::MyTilingPassBase<MyTilingPass> {
+public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(MyTilingPass)
 
   MyTilingPass() = default;
   MyTilingPass(const MyTilingPass &other)
+      : MyTilingPassBase<MyTilingPass>(other) {}
       : MyTilingPassBase<MyTilingPass>(other) {}
 
   void runOnOperation() override;
@@ -42,6 +72,7 @@ void MyTilingPass::runOnOperation() {
 
   SmallVector<OpFoldResult> tileSizesOFR =
       llvm::to_vector(llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
+      llvm::to_vector(llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
         return b.getIndexAttr(v);
       }));
   if (tileSizesOFR.empty()) {
@@ -51,21 +82,11 @@ void MyTilingPass::runOnOperation() {
   scf::SCFTilingOptions tilingOptions;
   tilingOptions.setTileSizes(tileSizesOFR);
 
-  SmallVector<TilingInterface> worklist;
-  func.walk([&](TilingInterface op) {
-    worklist.push_back(op);
-  });
+  RewritePatternSet patterns(ctx);
+  patterns.add<TileUsingSCFPattern>(ctx, tilingOptions);
 
-  IRRewriter rewriter(ctx);
-  for (TilingInterface op : worklist) {
-    if (op->getBlock() == nullptr) continue;
-
-    FailureOr<scf::SCFTilingResult> result =
-      scf::tileUsingSCFForOp(rewriter, op, tilingOptions);
-    if (succeeded(result)) {
-      rewriter.replaceOp(op, result->replacements);
-    }
-  }
+  if (failed(applyPatternAndFoldGreedily(func, std::move(patterns))))
+    signalPassFailure();
 }
 
 namespace mlir {
@@ -73,4 +94,5 @@ std::unique_ptr<Pass> createMyTilingPass() {
   return std::make_unique<MyTilingPass>();
 }
 } // namespace mlir
+
 
