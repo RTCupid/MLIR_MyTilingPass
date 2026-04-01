@@ -21,8 +21,9 @@ My standalone `MLIR` project.
 - [2. Introduction](#introduction)
 - [3. Methodology](#methodology)
 - [4. Tiling Pass Implementation](#tiling-pass-implementation)
-- [5. Results](#results)
-- [6. Conclusions](#conclusions)
+- [5. Comparison of Approaches](#comparison-of-approaches)
+- [6. Results](#results)
+- [7. Conclusions](#conclusions)
 - [Project structure](#project-structure)
 - [Project author](#project-author)
 
