@@ -42,7 +42,7 @@ cd build/bin
 ./my-tiling-opt <mlir_program> -my-tiling
 ```
 
-Разработанный инструмент включает возможность задавать размерности тайлинга `M`, `N`, `K` при помощи следующей опции `-my-tiling="tile-sizes=%s,%s,%s`".
+Разработанный инструмент включает возможность задавать размерности тайлинга `M`, `N`, `K` при помощи следующей опции `-my-tiling="tile-sizes=%s,%s,%s"`.
 
 ## Аннотация
 Разработан инструмент на основе `mlir-opt`, который выполняет разбиение на блоки (`tiling`) для операций умножения матриц в диалекте `Linalg`. В реализации использована спецификация `TableGen` и класс на `C++`, производный от `MyTilingPassBase`, сгенерированного TableGen. Для определения подходящих шаблонов использован `TilingInterface`, а для выполнения преобразования с разбиением на блоки - `scf::tileUsingSCFForOp`.
@@ -71,9 +71,11 @@ cd build/bin
 ## Реализация прохода тайлинга
 Первая итерация прохода тайлинга реализована с использованием паттернов переписывания (`RewritePattern`). Такой подход позволил задействовать готовые механизмы, например, `applyPatternsAndFoldGreedily`, для многократного применения преобразований. Наибольшие сложности на этом этапе вызвали настройка зависимостей между файлами и определение доступного набора уже реализованных функций.
 
-Реализованный проход успешно проходил большинство тестов, однако возникала проблема повторного применения тайлинга к уже обработанным операциям. Для её решения было ограничено количество итераций в `applyPatternsAndFoldGreedily` и добавлена проверка принадлежности операции к циклу — это с высокой вероятностью указывало на то, что операция уже была подвергнута преобразованию. Тем не менее, при работе с умножением матриц, изначально находящимся внутри цикла, возникли дополнительные сложности.
+В проходе возникало повторное применение тайлинга к уже обработанным операциям. Для решения этой проблемы было ограничено количество итераций в `applyPatternsAndFoldGreedily` и добавлена проверка принадлежности операции к циклу — это с высокой вероятностью указывало на то, что операция уже была подвергнута преобразованию. Реализованный проход успешно проходил большинство тестов. Тем не менее, при работе с умножением матриц, изначально находящимися внутри цикла, возникли дополнительные сложности.
 
-В связи с этим принято решение перейти к реализации прохода на основе обхода операций (`walk`) и прямого вызова функции `scf::tileUsingSCFForOp`. Такой подход позволил точнее контролировать процесс преобразования и легко реализовать однократный проход по всем операциям, поддерживающим интерфейс `TilingInterface`.
+В связи с этим принято решение перейти к реализации прохода на основе обхода операций (`walk`) и прямого вызова функции `scf::tileUsingSCFForOp`. Такой подход позволил точнее контролировать процесс преобразования и легко реализовать однократный проход по всем операциям, поддерживающим интерфейс `TilingInterface`. Однако в ходе дальнейших экспериментов выяснилось, что для интеграции с другими проходами и использования механизма `GreedyPatternRewriter` более удобным является паттерн-ориентированный стиль.
+
+В итоге проход был переписан с использованием паттернов, но с добавлением простого атрибута `tiled`, который устанавливался на операции после успешного тайлинга. Это предотвратило повторное применение преобразования к уже обработанным операциям, а также позволило сохранить совместимость с `applyPatternsAndFoldGreedily`.
 
 Для автоматической генерации базового класса прохода создано описание на языке TableGen (см. [Passes.td](/include/MyTiling/Passes.td)). В нём определены параметры прохода (размеры тайлов) и список зависимых диалектов. На основе этого описания генерировался класс `MyTilingPassBase`, содержащий методы `getArgument`, `getDescription`, `getDependentDialects`, а также обработку опций прохода и функцию регистрации `registerMyTilingPass`.
 
@@ -89,8 +91,9 @@ def MyTilingPass : Pass<"my-tiling", "mlir::func::FuncOp"> {
   }];
 
   let constructor = "mlir::createMyTilingPass()";
-  let dependentDialects = ["mlir::linalg::LinalgDialect", "mlir::scf::SCFDialect",
-                           "mlir::memref::MemRefDialect", "mlir::tensor::TensorDialect"];
+  let dependentDialects = ["mlir::linalg::LinalgDialect",
+                            "mlir::scf::SCFDialect",
+                            "mlir::memref::MemRefDialect", "mlir::tensor::TensorDialect"];
 
   let options = [
     ListOption<"tileSizes", "tile-sizes", "int64_t",
@@ -101,7 +104,48 @@ def MyTilingPass : Pass<"my-tiling", "mlir::func::FuncOp"> {
 
 </details>
 
-Класс `MyTilingPass` (см. [MyTiling.cpp](/lib/Transforms/MyTilingPass.cpp)) наследует от сгенерированного базового класса и переопределяет метод `runOnOperation`:
+Класс `MyTilingPass` (см. [MyTiling.cpp](/lib/Transforms/MyTilingPass.cpp)) наследует от сгенерированного базового класса и переопределяет метод `runOnOperation`.
+
+Для применения паттерн-ориентированного подхода реализована структура паттерна `TileUsingSCFPattern`.
+
+<details>
+<summary>Структура TileUsingSCFPattern:</summary>
+
+```c++
+struct TileUsingSCFPattern : public OpInterfaceRewritePattern<TilingInterface> {
+public:
+  TileUsingSCFPattern(MLIRContext *ctx, scf::SCFTilingOptions options)
+      : OpInterfaceRewritePattern<TilingInterface>(ctx),
+        options(std::move(options)) {}
+
+  LogicalResult matchAndRewrite(TilingInterface op,
+                                PatternRewriter &rewriter) const override {
+    if (op->hasAttr("tiled"))
+      return failure();
+
+    FailureOr<scf::SCFTilingResult> result =
+        scf::tileUsingSCFForOp(rewriter, op, options);
+    if (failed(result))
+      return failure();
+
+    for (Operation *newOp : result->tiledOps)
+      newOp->setAttr("tiled", rewriter.getUnitAttr());
+
+    rewriter.replaceOp(op, result->replacements);
+    return success();
+  }
+
+private:
+  scf::SCFTilingOptions options;
+};
+
+```
+
+</details>
+
+
+Сам проход регистрирует этот паттерн и запускает `applyPatternsAndFoldGreedily` в `runOnOperation`.
+
 
 <details>
 <summary>Определение runOnOperation:</summary>
@@ -112,59 +156,52 @@ void MyTilingPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   Builder b(ctx);
 
-  SmallVector<OpFoldResult> tileSizesOFR =
-      llvm::to_vector(llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
+  SmallVector<OpFoldResult> tileSizesOFR = llvm::to_vector(
+      llvm::map_range(this->tileSizes, [&](int64_t v) -> OpFoldResult {
         return b.getIndexAttr(v);
       }));
-  if (tileSizesOFR.empty()) {
+  if (tileSizesOFR.empty())
     tileSizesOFR = {b.getIndexAttr(32), b.getIndexAttr(32), b.getIndexAttr(32)};
-  }
 
   scf::SCFTilingOptions tilingOptions;
   tilingOptions.setTileSizes(tileSizesOFR);
 
-  SmallVector<TilingInterface> worklist;
-  func.walk([&](TilingInterface op) {
-    worklist.push_back(op);
-  });
+  RewritePatternSet patterns(ctx);
+  patterns.add<TileUsingSCFPattern>(ctx, tilingOptions);
 
-  IRRewriter rewriter(ctx);
-  for (TilingInterface op : worklist) {
-    if (op->getBlock() == nullptr) continue;
-
-    FailureOr<scf::SCFTilingResult> result =
-      scf::tileUsingSCFForOp(rewriter, op, tilingOptions);
-    if (succeeded(result)) {
-      rewriter.replaceOp(op, result->replacements);
-    }
-  }
+  if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
+    signalPassFailure();
 }
 
 ```
 
-Метод собирает все операции, реализующие `TilingInterface`, и для каждой применяет функцию `scf::tileUsingSCFForOp`. Если преобразование успешно, исходная операция заменяется на результаты тайлинга.
-
 </details>
+
+Такой подход обеспечивает однократное применение тайлинга к каждой операции, корректно обрабатывает случаи, когда операция уже находится внутри цикла, и сочетается с другими оптимизирующими проходами.
 
 Для демонстрации работы прохода разработан отдельный инструмент `my-tiling-opt` (см. [my-tiling-opt.cpp](/tools/my-tiling-opt/my-tiling-opt.cpp)). В его функции `main` регистрируются все диалекты `MLIR` и сам проход, после чего вызывается `MlirOptMain`. Это позволяет использовать инструмент как стандартную утилиту для преобразования `MLIR-модулей`.
 
+## Сравнение подходов
+В ходе написания прохода тайлинга использовано два подхода: итеративный проход по всем инструкциям, реализующим `TilingInterface`, и подход, основанный на проходе всех паттернов, удовлетворяющих `TilingInterface` через механизм `applyPatternsAndFoldGreedily`.
+
+Итеративный подход обеспечил детальный контроль над процессом преобразования, однако потребовал ручной обработки зависимостей между операциями. В частности, сохранилась потенциальная уязвимость к вызову преобразования на уже удалённой операции в случае её замены в процессе тайлинга. На наборе тестовых примеров данная проблема не проявилась, однако её наличие создаёт риск возникновения ошибок при усложнении пайплайна оптимизаций и тестовых программ.
+
+Паттерн-ориентированный подход оказался более высокоуровневым и удобным. Инфраструктура `GreedyPatternRewriter` автоматически управляла порядком применения паттернов, отслеживала зависимости между операциями и корректно обрабатывала ситуации с удалёнными операциями. Первоначальная сложность, связанная с неконтролируемым многократным применением тайлинга к уже обработанным операциям, была устранена путём введения атрибута `tiled`, который устанавливался на операции после успешного преобразования (как описано в разделе [Реализация прохода тайлинга](#реализация-прохода-тайлинга)).
+
+В итоговой версии прохода был выбран паттерн-ориентированный подход, поскольку он соответствовал стандартным практикам разработки проходов в `MLIR`, обеспечивал лучшую совместимость с другими оптимизациями и продемонстрировал более высокую надёжность и универсальность.
+
 ## Результаты
-Получили инструмент `my-tiling-opt`, который с опцией `-my-tiling` запускает проход тайлинга на входящей `mlir` программе. 
+Получили инструмент `my-tiling-opt`, который с опцией `-my-tiling` запускает проход тайлинга на входящей `mlir` программе.
 
 <details>
 <summary>Пример преобразования:</summary>
 
 ```mlir
-func.func @matmul_64x64x64(
-    %A: memref<64x64xf32>,
-    %B: memref<64x64xf32>,
-    %C: memref<64x64xf32>) {
-
-  linalg.matmul
-    ins(%A, %B: memref<64x64xf32>, memref<64x64xf32>)
-    outs(%C: memref<64x64xf32>)
-
-  return
+module {
+  func.func @matmul_64x64x64(%arg0: memref<64x64xf32>, %arg1: memref<64x64xf32>, %arg2: memref<64x64xf32>) {
+    linalg.matmul ins(%arg0, %arg1 : memref<64x64xf32>, memref<64x64xf32>) outs(%arg2 : memref<64x64xf32>)
+    return
+  }
 }
 
 ```
@@ -178,18 +215,12 @@ module {
     %c64 = arith.constant 64 : index
     %c32 = arith.constant 32 : index
     scf.for %arg3 = %c0 to %c64 step %c32 {
-      %c0_0 = arith.constant 0 : index
-      %c64_1 = arith.constant 64 : index
-      %c32_2 = arith.constant 32 : index
-      scf.for %arg4 = %c0_0 to %c64_1 step %c32_2 {
-        %c0_3 = arith.constant 0 : index
-        %c64_4 = arith.constant 64 : index
-        %c32_5 = arith.constant 32 : index
-        scf.for %arg5 = %c0_3 to %c64_4 step %c32_5 {
+      scf.for %arg4 = %c0 to %c64 step %c32 {
+        scf.for %arg5 = %c0 to %c64 step %c32 {
           %subview = memref.subview %arg0[%arg3, %arg5] [32, 32] [1, 1] : memref<64x64xf32> to memref<32x32xf32, strided<[64, 1], offset: ?>>
-          %subview_6 = memref.subview %arg1[%arg5, %arg4] [32, 32] [1, 1] : memref<64x64xf32> to memref<32x32xf32, strided<[64, 1], offset: ?>>
-          %subview_7 = memref.subview %arg2[%arg3, %arg4] [32, 32] [1, 1] : memref<64x64xf32> to memref<32x32xf32, strided<[64, 1], offset: ?>>
-          linalg.matmul ins(%subview, %subview_6 : memref<32x32xf32, strided<[64, 1], offset: ?>>, memref<32x32xf32, strided<[64, 1], offset: ?>>) outs(%subview_7 : memref<32x32xf32, strided<[64, 1], offset: ?>>)
+          %subview_0 = memref.subview %arg1[%arg5, %arg4] [32, 32] [1, 1] : memref<64x64xf32> to memref<32x32xf32, strided<[64, 1], offset: ?>>
+          %subview_1 = memref.subview %arg2[%arg3, %arg4] [32, 32] [1, 1] : memref<64x64xf32> to memref<32x32xf32, strided<[64, 1], offset: ?>>
+          linalg.matmul {tiled} ins(%subview, %subview_0 : memref<32x32xf32, strided<[64, 1], offset: ?>>, memref<32x32xf32, strided<[64, 1], offset: ?>>) outs(%subview_1 : memref<32x32xf32, strided<[64, 1], offset: ?>>)
         }
       }
     }
@@ -199,7 +230,7 @@ module {
 
 ```
 
-В теле выходной функции организованы три вложенных цикла `scf.for`, которые итерируются по блокам размера `32` по каждому измерению. 
+В теле выходной функции организованы три вложенных цикла `scf.for`, которые итерируются по блокам размера `32` по каждому измерению.
 
 ```
 Внешний цикл по `%arg3` от `0` до `64` с шагом `32` — итерация по строкам блоков выходной матрицы `C` и строкам матрицы `A`.
@@ -223,17 +254,15 @@ module {
 
 ## Заключение
 
-Разработан проход тайлинга для диалекта `Linalg` в инфраструктуре `MLIR`. Инструмент, реализованный в виде самостоятельного оптимизирующего прохода (`my-tiling-opt`), выполняет разбиение операций умножения матриц на блоки с задаваемыми пользователем размерами по каждому измерению. Для идентификации подходящих операций используется `TilingInterface`, а преобразование реализовано через `scf::tileUsingSCFForOp`, что гарантирует корректную генерацию вложенных циклов `scf.for` и подматриц (`subview`).
+Разработан проход тайлинга для диалекта `Linalg` в инфраструктуре `MLIR`. Инструмент, реализованный в виде самостоятельного оптимизирующего прохода (`my-tiling-opt`), выполняет разбиение операций умножения матриц на блоки с задаваемыми пользователем размерами по каждому измерению. Для идентификации паттернов используется `TilingInterface`, а преобразование реализовано через `scf::tileUsingSCFForOp`, что гарантирует корректную генерацию вложенных циклов `scf.for` и подматриц (`subview`).
 
 Инструмент успешно протестирован на широком спектре конфигураций: квадратные и прямоугольные матрицы, статические и динамические размерности, работа с `memref` и `tensor`, а также случаи с уже существующими циклами и последовательными умножениями.
 
 Обеспечена гибкость настройки: размеры тайлов могут передаваться через опцию командной строки, а при отсутствии явного указания используются значения по умолчанию (`32×32×32`).
 
-Выбранный подход на основе обхода операций и прямого вызова функции тайлинга показал высокую надёжность и предсказуемость, что особенно важно при интеграции в более сложные пайплайны оптимизаций.
-
 Практическая значимость прохода заключается в автоматизации критической оптимизации для тензорных вычислений — улучшении локальности данных и уменьшении количества обращений к памяти за счёт блочной обработки. Это является важным шагом на пути к построению эффективных компиляторов для глубокого обучения и других вычислительно интенсивных задач.
 
-В качестве направлений для дальнейшего развития можно выделить: поддержку многоуровневого тайлинга (с учётом различных уровней иерархии памяти); интеграцию с последующими проходами, такими как слияние (`fusion`) и векторизация; добавление возможности автоматического подбора размеров тайлов на основе анализа архитектуры целевого устройства.
+В качестве направлений для дальнейшего развития можно выделить: поддержку многоуровневого тайлинга (с учётом различных уровней иерархии памяти); добавление возможности автоматического подбора размеров тайлов на основе анализа архитектуры целевого устройства.
 
 Разработанный инструмент может служить основой для более сложных трансформаций и демонстрирует эффективность применения современной инфраструктуры `MLIR` для создания оптимизирующих компиляторов.
 
