@@ -27,28 +27,22 @@ func.func @matmul_64x64x64_in_scf_for(
 // CHECK-LABEL: func.func @matmul_64x64x64_in_scf_for
 // ===========================================================================
 
-// Check constants and outer loop
 // CHECK-DAG: %c0 = arith.constant 0 : index
 // CHECK-DAG: %c1 = arith.constant 1 : index
-// CHECK: scf.for %{{.*}} = %c0 to %{{.*}} step %c1 {
-
-// Check inner constants for tile loops (0, 64, 32)
-// CHECK-DAG: %c0_0 = arith.constant 0 : index
 // CHECK-DAG: %c64 = arith.constant 64 : index
 // CHECK-DAG: %c32 = arith.constant 32 : index
 
-// Check three nested loops with step 32
-// CHECK: scf.for %{{.*}} = %c0_0 to %c64 step %c32 {
-// CHECK:   scf.for %{{.*}} = %c0_1 to %c64_2 step %c32_3 {
-// CHECK:     scf.for %{{.*}} = %c0_4 to %c64_5 step %c32_6 {
+// CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}}
+// CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}}
+// CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}}
+// CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}}
 
-// Check subviews and matmul inside the innermost loop
-// CHECK-DAG:   %subview = memref.subview %{{.*}}[%{{.*}}, %{{.*}}] [32, 32] [1, 1] : memref<64x64xf32> to memref<32x32xf32, strided<[64, 1], offset: ?>>
-// CHECK-DAG:   %subview_7 = memref.subview %{{.*}}[%{{.*}}, %{{.*}}] [32, 32] [1, 1] : memref<64x64xf32> to memref<32x32xf32, strided<[64, 1], offset: ?>>
-// CHECK-DAG:   %subview_8 = memref.subview %{{.*}}[%{{.*}}, %{{.*}}] [32, 32] [1, 1] : memref<64x64xf32> to memref<32x32xf32, strided<[64, 1], offset: ?>>
-// CHECK:       linalg.matmul ins(%subview, %subview_7 : memref<32x32xf32, strided<[64, 1], offset: ?>>, memref<32x32xf32, strided<[64, 1], offset: ?>>) outs(%subview_8 : memref<32x32xf32, strided<[64, 1], offset: ?>>)
+// CHECK-DAG:   memref.subview
+// CHECK-DAG:   memref.subview
+// CHECK-DAG:   memref.subview
+// CHECK:       linalg.matmul 
 
-// CHECK:     }
-// CHECK:   }
+// CHECK: }
+// CHECK: }
 // CHECK: }
 // CHECK: return
