@@ -24,7 +24,7 @@
 
 using namespace mlir;
 
-struct TileUsingSCFPattern : public OpInterfaceRewritePattern<TilingInterface> {
+struct TileUsingSCFPattern final: public OpInterfaceRewritePattern<TilingInterface> {
 public:
   TileUsingSCFPattern(MLIRContext *ctx, scf::SCFTilingOptions options)
       : OpInterfaceRewritePattern<TilingInterface>(ctx),
@@ -51,7 +51,7 @@ private:
   scf::SCFTilingOptions options;
 };
 
-struct MyTilingPass : public ::impl::MyTilingPassBase<MyTilingPass> {
+struct MyTilingPass final: public ::impl::MyTilingPassBase<MyTilingPass> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(MyTilingPass)
 
